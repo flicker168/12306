@@ -1,4 +1,6 @@
 # -*- coding: utf8 -*-
+import socket
+
 __author__ = 'MR.wen'
 from email.header import Header
 from email.mime.text import MIMEText
@@ -29,14 +31,19 @@ def sendEmail(msg):
             msg['From'] = sender
             msg['To'] = receiver
 
-            smtp = smtplib.SMTP_SSL()
+            try:
+                smtp = smtplib.SMTP_SSL()
+                smtp.connect(host)
+            except socket.error:
+                smtp = smtplib.SMTP()
+                smtp.connect(host)
             smtp.connect(host)
             smtp.login(username, password)
             smtp.sendmail(sender, receiver.split(","), msg.as_string())
             smtp.quit()
             print(u"邮件已通知, 请查收")
         except Exception as e:
-            print(u"邮件配置有误", e)
+            print(u"邮件配置有误{}".format(e))
     else:
         pass
 

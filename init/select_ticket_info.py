@@ -30,9 +30,12 @@ from myException.ticketIsExitsException import ticketIsExitsException
 from myException.ticketNumOutException import ticketNumOutException
 from myUrllib.httpUtils import HTTPClient
 from utils.timeUtil import time_to_minutes, minutes_to_time
-if sys.version_info.major == 2:
+
+try:
     reload(sys)
     sys.setdefaultencoding('utf-8')
+except NameError:
+    pass
 
 
 class select:
@@ -44,15 +47,15 @@ class select:
         self.from_station, self.to_station, self.station_dates, self._station_seat, self.is_more_ticket, \
         self.ticke_peoples, self.station_trains, self.ticket_black_list_time, \
         self.order_type, self.is_by_time, self.train_types, self.departure_time, \
-        self.arrival_time, self.take_time, self.order_model, self.open_time = self.get_ticket_info()
+        self.arrival_time, self.take_time, self.order_model, self.open_time, self.is_proxy = self.get_ticket_info()
         self.is_auto_code = _get_yaml()["is_auto_code"]
         self.auto_code_type = _get_yaml()["auto_code_type"]
         self.is_cdn = _get_yaml()["is_cdn"]
-        self.httpClint = HTTPClient()
+        self.httpClint = HTTPClient(self.is_proxy)
         self.urls = urlConf.urls
         self.login = GoLogin(self, self.is_auto_code, self.auto_code_type)
         self.cdn_list = []
-        self.queryUrl = "leftTicket/queryX"
+        self.queryUrl = "leftTicket/queryZ"
         self.passengerTicketStrList = ""
         self.oldPassengerStr = ""
         self.set_type = ""
@@ -67,7 +70,10 @@ class select:
         to_station = ticket_info_config["set"]["to_station"]
         station_dates = ticket_info_config["set"]["station_dates"]
         set_names = ticket_info_config["set"]["set_type"]
-        set_type = [seat_conf[x.encode("utf-8")] for x in ticket_info_config["set"]["set_type"]]
+        try:
+            set_type = [seat_conf[x.encode("utf-8")] for x in ticket_info_config["set"]["set_type"]]
+        except KeyError:
+            set_type = [seat_conf[x] for x in ticket_info_config["set"]["set_type"]]
         is_more_ticket = ticket_info_config["set"]["is_more_ticket"]
         ticke_peoples = ticket_info_config["set"]["ticke_peoples"]
         station_trains = ticket_info_config["set"]["station_trains"]
@@ -85,8 +91,19 @@ class select:
         order_model = ticket_info_config["order_model"]
         open_time = ticket_info_config["open_time"]
 
+        # 代理模式
+        is_proxy = ticket_info_config["is_proxy"]
+
         print(u"*" * 50)
-        print(u"12306刷票小助手，最后更新于2019.01.02，请勿作为商业用途，交流群号：286271084(已满)， 请加2群：649992274")
+        print(u"检查当前python版本为：{}，目前版本只支持2.7.10-2.7.15".format(sys.version.split(" ")[0]))
+        print(u"12306刷票小助手，最后更新于2019.01.08，请勿作为商业用途，交流群号：286271084(已满)，"
+              u" 2群：649992274(已满)\n"
+              u" 3群：632501142(已满)\n"
+              u" 4群: 606340519(已满)\n"
+              u" 5群: 948526733(已满)\n"
+              u" 6群: 444101020(未满)\n"
+              u" 7群: 660689659(未满)\n"
+              )
         if is_by_time:
             method_notie = u"购票方式：根据时间区间购票\n可接受最早出发时间：{0}\n可接受最晚抵达时间：{1}\n可接受最长旅途时间：{2}\n可接受列车类型：{3}\n" \
                 .format(minutes_to_time(departure_time), minutes_to_time(arrival_time), minutes_to_time(take_time),
@@ -94,7 +111,7 @@ class select:
         else:
             method_notie = u"购票方式：根据候选车次购买\n候选购买车次：{0}".format(",".join(station_trains))
         print (u"当前配置：\n出发站：{0}\n到达站：{1}\n乘车日期：{2}\n坐席：{3}\n是否有票优先提交：{4}\n乘车人：{5}\n" \
-              u"刷新间隔: 随机(1-3S)\n{6}\n僵尸票关小黑屋时长: {7}\n下单接口: {8}\n下单模式: {9}\n预售踩点时间:{10} ".format \
+               u"刷新间隔: 随机(1-3S)\n{6}\n僵尸票关小黑屋时长: {7}\n下单接口: {8}\n下单模式: {9}\n预售踩点时间:{10} ".format \
                 (
                 from_station,
                 to_station,
@@ -111,7 +128,7 @@ class select:
         print (u"*" * 50)
         return from_station, to_station, station_dates, set_type, is_more_ticket, ticke_peoples, station_trains, \
                ticket_black_list_time, order_type, is_by_time, train_types, departure_time, arrival_time, take_time, \
-               order_model, open_time
+               order_model, open_time, is_proxy
 
     def station_table(self, from_station, to_station):
         """
@@ -127,8 +144,12 @@ class select:
         for i in range(0, len(info)):
             n_info = info[i].split('|')
             station_name[n_info[1]] = n_info[2]
-        from_station = station_name[from_station.encode("utf8")]
-        to_station = station_name[to_station.encode("utf8")]
+        try:
+            from_station = station_name[from_station.encode("utf8")]
+            to_station = station_name[to_station.encode("utf8")]
+        except KeyError:
+            from_station = station_name[from_station]
+            to_station = station_name[to_station]
         return from_station, to_station
 
     def call_login(self, auth=False):
@@ -139,18 +160,19 @@ class select:
         if auth:
             return self.login.auth()
         else:
+            configCommon.checkSleepTime(self)  # 防止网上启动晚上到点休眠
             self.login.go_login()
 
     def cdn_req(self, cdn):
         for i in range(len(cdn) - 1):
-            http = HTTPClient()
+            http = HTTPClient(0)
             urls = self.urls["loginInitCdn"]
             http._cdn = cdn[i].replace("\n", "")
             start_time = datetime.datetime.now()
             rep = http.send(urls)
             if rep and "message" not in rep and (datetime.datetime.now() - start_time).microseconds / 1000 < 500:
                 if cdn[i].replace("\n", "") not in self.cdn_list:  # 如果有重复的cdn，则放弃加入
-                    print(u"加入cdn {0}".format(cdn[i].replace("\n", "")))
+                    # print(u"加入cdn {0}".format(cdn[i].replace("\n", "")))
                     self.cdn_list.append(cdn[i].replace("\n", ""))
         print(u"所有cdn解析完成...")
 
@@ -175,7 +197,7 @@ class select:
                 raise ticketConfigException(u"cdn列表为空，请先加载cdn")
 
     def main(self):
-        autoSynchroTime()  # 同步时间
+        # autoSynchroTime()  # 同步时间
         self.cdn_certification()
         l = liftTicketInit(self)
         l.reqLiftTicketInit()
@@ -186,6 +208,8 @@ class select:
         t.start()
         from_station, to_station = self.station_table(self.from_station, self.to_station)
         num = 0
+        s = getPassengerDTOs(session=self, ticket_peoples=self.ticke_peoples)
+        s.sendGetPassengerDTOs()
         while 1:
             try:
                 num += 1
@@ -303,5 +327,4 @@ class select:
 
 if __name__ == '__main__':
     s = select()
-    cdn = CDNProxy().open_cdn_file()
-    s.cdn_req(cdn)
+    cdn = s.station_table("长沙", "深圳")
